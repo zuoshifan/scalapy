@@ -505,14 +505,14 @@ cdef class DistributedMatrix(object):
             array_size *= s
         if file_size < np.dtype(dtype).itemsize * array_size + offset:
             raise RuntimeError("File isn't big enough")
-
+        
+        # Create the distributed matrix.
         m = cls(shape, blocksize=blocksize, dtype=np.dtype(dtype))
-        # The returned matrix is C ordered if order = 'C' but the assignment
-        # always makes the local array fortran ordered.
-        m.local_array[...] = blockcyclic.mpi_readmatrix(fname, MPI.COMM_WORLD,
-                                shape, np.dtype(dtype).type, blocksize, 
-                                (m.context.num_rows, m.context.num_cols),
-                                order=order, displacement=offset)
+        # Read the file and copy it into the distribute matrix.
+        blockcyclic.mpi_readmatrix(fname, MPI.COMM_WORLD, shape, 
+                np.dtype(dtype).type, blocksize, 
+                (m.context.num_rows, m.context.num_cols),
+                order=order, displacement=offset, local_array=m.local_array)
         return m
 
 

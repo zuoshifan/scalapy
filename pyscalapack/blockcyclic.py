@@ -94,13 +94,9 @@ def indices_rc(N, B, p, P):
     return ind
 
 
-
-
-
-
-
-
-def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid, order='F', displacement=0):
+def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid,
+                   order='F', displacement=0, local_array=None,
+                   max_single_read_size=2**30):
     """Distribute a block cyclic matrix read from a file (using MPI-IO).
 
     The order flag specifies in which order (either C or Fortran) the array is
@@ -126,18 +122,28 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid, order='F
     displacement : integer, optional
         Use a displacement from the start of the file. That is ignore the first
         `displacement` bytes.
+    local_array : numpy array
+        Array into which the read data will be copied.  Array must be the
+        correct shape, but need not be the correct data type of ordering.  This
+        argument is usefull for reformatting the read data and may also save
+        memory for very large reads.
+    max_single_read_size: integer
+        Maximum size of a single read per process (in bytes).  Reads bigger
+        than this will be split into multiple reads.  There is a known MPIIO
+        bug that occurs if this is bigger than 2**31
 
     Returns
     -------
     local_array : np.ndarray
-        The section of the array local to this process.
+        The section of the array local to this process.  If the argument of the
+        same name was supplied, this is just a reference to that array.
     """
+    
     if dtype not in _typemap:
         raise Exception("Unsupported type.")
 
     # Get MPI type
     mpitype = _typemap[dtype]
-
 
     # Sort out F, C ordering
     if order not in ['F', 'C']:
@@ -158,35 +164,94 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid, order='F
     if size != process_grid[0]*process_grid[1]:
         raise Exception("MPI size does not match process grid.")
 
-
-
-    # Create distributed array view.
-    darr = mpitype.Create_darray(size, rank, gshape,
-                                 [MPI.DISTRIBUTE_CYCLIC, MPI.DISTRIBUTE_CYCLIC],
-                                 blocksize, process_grid, mpiorder)
-    darr.Commit()
-
-    # Get shape of loal segment
+    # Get shape of local segment
     process_position = [int(rank / process_grid[1]), int(rank % process_grid[1])]
     lshape = map(numrc, gshape, blocksize, process_position, process_grid)
 
-    # Check to see if they type has the same shape.
-    if lshape[0]*lshape[1] != darr.Get_size() / mpitype.Get_size():
-        raise Exception("Strange mismatch is local shape size.")
+    # Allowcate memory for the output.
+    if local_array is None:
+        local_array = np.empty(lshape, dtype=dtype, order=order)
+    elif (local_array.shape[0] != lshape[0]
+          or local_array.shape[1] != lshape[1]):
+        msg = "Array supplied for output is the wrong shape."
+        raise ValueError(msg)
 
-
-    # Create the local array
-    local_array = np.empty(lshape, dtype=dtype, order=order)
-
-    # Open the file, and read out the segments
+    # We split the read into batches of rows (columns for fortran ordering) to
+    # keep a single read from being to large. Reads bigger than 2GB crash due
+    # to a bug in MPIIO.
+    max_read_size = max_single_read_size // mpitype.Get_size()
+    # Find out the global shape of the chunks matrix to read.
+    if order is 'F':
+        # In Fortran order we read a subset of the columns at a time.
+        read_rows = gshape[1]
+        read_cols = max_read_size // read_rows
+        # Make read_cols divisable by (blocksize[1] * process_grid[1]).
+        read_cols = read_cols - read_cols % (blocksize[1] * process_grid[1])
+        read_gshape = (read_rows, read_cols)
+    elif order is 'C':
+        # In C order, we read a subset of the rows at a time.
+        read_cols = gshape[1]
+        read_rows = max_read_size // read_cols
+        # Make read_rows divisable by (blocksize[0] * process_grid[0]).
+        read_rows = read_rows - read_rows % (blocksize[0] * process_grid[0])
+        read_gshape = (read_rows, read_cols)
+    if read_gshape[0] <= 0 or read_gshape[1] <= 0:
+        msg = "Blocksize too big, reads cannot be chuncked into small reads."
+        raise RuntimeError(msg)
+    
+    # Loop over all the chunks of data to read (note that one of these loops is
+    # only length 1 depending on Fortran or C ordering).
     f = MPI.File.Open(comm, fname, MPI.MODE_RDONLY)
-    f.Set_view(displacement, mpitype, darr, "native")
-    f.Read_all(local_array)
+    global_elements_read = 0
+    l_rows_read = 0
+    for ii in range(0, gshape[0], read_gshape[0]):
+        l_cols_read = 0
+        for jj in range(0, gshape[1], read_gshape[1]):
+            read_rows = min(read_gshape[0], gshape[0] - ii)
+            read_cols = min(read_gshape[1], gshape[1] - jj)
+            this_read_gshape = (read_rows, read_cols)
+
+            # Create distributed array view.
+            darr = mpitype.Create_darray(size, rank, this_read_gshape,
+                             [MPI.DISTRIBUTE_CYCLIC, MPI.DISTRIBUTE_CYCLIC],
+                             blocksize, process_grid, mpiorder)
+            darr.Commit()
+
+            # Get shape of local segment
+            this_lshape = map(numrc, this_read_gshape, blocksize, 
+                              process_position, process_grid)
+            
+            # Check to see if darr agrees on the size of this read.
+            if (this_lshape[0]*this_lshape[1]
+                != darr.Get_size() / mpitype.Get_size()):
+                raise RuntimeError("Strange mismatch is local shape size.")
+
+            # Create buffer for data to be read into.
+            read_array = np.empty(this_lshape, dtype=dtype, order=order)
+            
+            # Open the file, and read out the segments.
+            # If there isn't at least one full block per process, this
+            # segfaults for some reason.
+            f.Set_view(displacement
+                       + global_elements_read * mpitype.Get_size(),
+                       mpitype, darr, "native")
+            f.Read_all(read_array)
+
+            local_array[l_rows_read:l_rows_read + read_array.shape[0],
+                        l_cols_read:l_cols_read + read_array.shape[1]] = \
+                    read_array
+
+            global_elements_read += this_read_gshape[0] * this_read_gshape[1]
+            l_cols_read += read_array.shape[1]
+        if l_cols_read != local_array.shape[1]:
+            msg = "Strange mismatch between local number of columns."
+            raise RuntimeError(msg)
+        l_rows_read += read_array.shape[0]
+    if l_rows_read != local_array.shape[0]:
+        msg = "Strange mismatch between local number of rows."
+        raise RuntimeError(msg)
     f.Close()
-
     return local_array
-
-
 
     
 def mpi_writematrix(fname, local_array, comm, gshape, dtype,
@@ -271,9 +336,6 @@ def mpi_writematrix(fname, local_array, comm, gshape, dtype,
     f.Set_view(displacement, mpitype, darr, "native")
     f.Write_all(local_array)
     f.Close()
-
-    
-
 
 
 def bc_matrix_forward(src, blocksize, process, process_grid, order='F', dest=None):
