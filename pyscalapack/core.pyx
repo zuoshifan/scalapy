@@ -644,6 +644,7 @@ cdef class DistributedMatrix(object):
  
         # Write the header data.
         if self.context.mpi_rank == 0:
+#        if self.context.mpi_comm.get_rank() == 0:
             npyutils.write_header_data(fname, header_data)
 
         MPI.COMM_WORLD.barrier()

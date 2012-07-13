@@ -10,7 +10,7 @@ from scalapack cimport *
 
 from pyscalapack.core cimport *
 #from scarray import *
-
+from pyscalapack.blockcyclic import numrc as nrc
 
 cdef int _ONE = 1
 cdef int _ZERO = 0
@@ -252,4 +252,244 @@ def pdpotrf(mat, destroy = True, upper = True):
         
     return A
 
+def pdpotrs(mat, rhs, destroy = True, upper = True):
+    r"""Solve the linear system(s) of equations mat*X=rhs using
+    Cholesky factorization and Scalapack.
+    
+    Parameters
+    ----------
+    mat : DistributedMatrix
+        The triangular Cholesky factored matrix as computed by pdpotrf.
+    rhs : DistributedMatrix
+        Contains one column for each system of equations to solve.
+    destroy : boolean, optional
+        By default the input rhs is destroyed, if set to False a
+        copy is taken and operated on.
+    upper : boolean, optional
+        Scalapack uses only half of the Cholesky matrix, by default the upper
+        triangle will be used. Set to False to use the lower triangle.
 
+    Returns
+    -------
+    solution : DistributedMatrix
+        The solution to mat*X=rhs.
+    """
+    cdef DistributedMatrix A
+    cdef DistributedMatrix B
+
+    cdef int info
+
+
+    ## Check input
+    assert_type(mat, np.float64)
+    assert_square(mat)
+    if mat.Nr != rhs.Nr:
+        msg = "Colesky matrix and solution vector/matrix must have same number "
+        msg += "of rows. A has %i and B has %i rows currently." % (mat.Nr,rhs.Nr)
+        raise Exception(msg)
+
+    A = mat
+    B = rhs if destroy else rhs.copy()
+
+    uplo = "U" if upper else "L"
+
+    pdpotrs_(uplo, &(A.Nr), &(B.Nc),
+             <double *>A._data(), &_ONE, &_ONE, A._getdesc(),
+             <double *>B._data(), &_ONE, &_ONE, B._getdesc(),
+             &info)
+
+    if info < 0:
+        raise Exception("Something weird has happened.")
+    elif info > 0:
+        raise Exception("Matrix is not positive definite.")
+
+    # After computation, B becomes X so return that.
+    return B
+
+'''
+def pdgetrf(mat, destroy = True):
+    r"""Compute an LU factorization of a general matrix, using partial
+    pivoting with row interchanges.
+
+    Parameters
+    ----------
+    mat : DistributedMatrix
+        The matrix to decompose.
+    destroy : boolean, optional
+        By default the input matrix is destroyed, if set to False a
+        copy is taken and operated on.
+
+    Returns
+    -------
+    lu_decomp : DistributedMatrix
+        The LU decomposition of the matrix.
+    pivots : int array
+        An array of length ( LOCr(M_mat)+MB_mat )
+        This array contains the pivoting information.
+        pivots(i) -> The global row local row i was swapped with.
+        This array is tied to the distributed matrix mat.
+        http://www.netlib.org/scalapack/double/pdgetrf.f
+    """
+
+    cdef DistributedMatrix A
+
+    cdef int * ipiv
+    cdef int info
+    
+    ## Check input
+    assert_type(mat, np.float64)
+    assert_square(mat)
+ 
+    A = mat if destroy else mat.copy()
+
+    # For pivoting information.
+    nr = nrc(A.Nr, A.Br, A.context.row, 0, A.context.num_rows)
+    ipiv = <int *>malloc(sizeof(int) * (nr+A.Br))
+
+    pdgetrf_(&(A.Nr), &(A.Nc),
+             <double *>A._data(), &_ONE, &_ONE, A._getdesc(),
+             ipiv, &info)
+
+    if info < 0:
+        raise Exception("Something weird has happened.")
+    elif info > 0:
+        raise Exception("Solving with this decomposition will cause division by 0.")
+
+    return A,ipiv
+
+
+def pdgetrs(mat, pivots, rhs, destroy = True, trans = False):
+    r"""Solve the linear system(s) of equations mat*X=rhs using
+    LU decomposition and Scalapack.
+
+    Parameters
+    ----------
+    mat : DistributedMatrix
+        The LU decomposed matrix as computed by pdgetrf.
+    pivots : int array
+        Contains pivoting information from the LU decomposition.
+        See pdgetrf.
+    rhs : DistributedMatrix
+        Contains one column for each system of equations to solve.
+    destroy : boolean, optional
+        By default the input rhs is destroyed, if set to False a
+        copy is taken and operated on.
+    trans : boolean, optional
+        Solves mat*X=rhs if False. Solves transpose(mat)*X=rhs if True.
+
+    Returns
+    -------
+    solution : DistributedMatrix
+        The solution to mat*X=rhs.
+    """
+
+
+    cdef DistributedMatrix A
+    cdef DistributedMatrix B
+
+    cdef int info
+
+    ## Check input
+    assert_type(mat, np.float64)
+    assert_square(mat)
+    if mat.Nr != rhs.Nr:
+        msg = "LU matrix and solution vector/matrix must have same number "
+        msg += "of rows. A has %i and B has %i rows currently." % (mat.Nr,rhs.Nr)
+        raise Exception(msg)
+
+    A = mat
+    B = rhs if destroy else rhs.copy()
+
+    torno = "T" if trans else "N"
+
+    pdgetrs_(torno, &(A.Nr), &(B.Nc),
+             <double *>A._data(), &_ONE, &_ONE, A._getdesc(), <int *>pivots,
+             <double *>B._data(), &_ONE, &_ONE, B._getdesc(),
+             &info)
+
+    if info < 0:
+        raise Exception("Something weird has happened.")
+    elif info > 0:
+        raise Exception("This should never occur.")
+
+    return B
+'''
+
+
+def pdgetrf_pdgetrs(mat, rhs, destroy_mat=True, destroy_rhs=True, trans=False):
+    r"""Solve the linear system(s) of equations mat*X=rhs using
+    LU decomposition and Scalapack.
+    There is pivoting information as a C array that cannot be returned from
+    the factorization that the solving function needs, this is all in one.
+
+    Parameters
+    ----------
+    mat : DistributedMatrix
+        The matrix to decompose.
+    rhs : DistributedMatrix
+        Contains one column for each system of equations to solve.
+    destroy_mat : boolean, optional
+        By default the input matrix is destroyed, if set to False a
+        copy is taken and operated on.
+    destroy_rhs : boolean, optional
+        By default the input rhs is destroyed, if set to False a
+        copy is taken and operated on.
+    trans : boolean, optional
+        Solves mat*X=rhs if False. Solves transpose(mat)*X=rhs if True.
+
+    Returns
+    -------
+    lu_decomp : DistributedMatrix
+        The LU decomposition of mat in one matrix.
+        Diagonal elements of L are not stored.
+    solution : DistributedMatrix
+    The solution to mat*X=rhs.
+"""
+
+    cdef DistributedMatrix A
+    cdef DistributedMatrix B
+
+    cdef int * ipiv
+    cdef int info
+
+    ## Check input
+    assert_type(mat, np.float64)
+    assert_square(mat)
+    if mat.Nr != rhs.Nr:
+        msg = "LU matrix and solution vector/matrix must have same number "
+        msg += "of rows. A has %i and B has %i rows currently." %(mat.Nr,rhs.Nr)
+        raise Exception(msg)
+
+
+    A = mat if destroy_mat else mat.copy()
+
+    # For pivoting information.
+    nr = nrc(A.Nr, A.Br, A.context.row, A.context.num_rows)
+    ipiv = <int *>malloc(sizeof(int) * (nr+A.Br))
+
+    pdgetrf_(&(A.Nr), &(A.Nc),
+             <double *>A._data(), &_ONE, &_ONE, A._getdesc(),
+             ipiv, &info)
+
+    if info < 0:
+        raise Exception("Something weird has happened in the LU decomposition.")
+    elif info > 0:
+        raise Exception("Solving with this decomp will cause division by 0.")
+
+    # Factorization done. Now solve.
+
+    B = rhs if destroy_rhs else rhs.copy()
+
+    torno = "T" if trans else "N"
+
+    pdgetrs_(torno, &(A.Nr), &(B.Nc),
+             <double *>A._data(), &_ONE, &_ONE, A._getdesc(), ipiv,
+             <double *>B._data(), &_ONE, &_ONE, B._getdesc(),
+             &info)
+
+    if info < 0:
+        raise Exception("Something weird has happened in the LU solving.")
+    elif info > 0:
+        raise Exception("This should never occur.")
+
+    return A,B

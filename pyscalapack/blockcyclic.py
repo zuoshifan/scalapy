@@ -150,6 +150,10 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid, order='F
     rank = comm.Get_rank()
     size = comm.Get_size()
 
+
+#   # TESTESTEST
+#   print "\n\n\n%s * %s == %s / %s\n\n\n" % (repr(lshape[0]),repr(lshape[1]),repr(darr.Get_size()),repr(mpitype.Get_size()
+
     # Check process grid shape
     if size != process_grid[0]*process_grid[1]:
         raise Exception("MPI size does not match process grid.")
