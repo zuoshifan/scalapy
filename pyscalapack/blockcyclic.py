@@ -190,7 +190,7 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid,
         read_gshape = (read_rows, read_cols)
     elif order is 'C':
         # In C order, we read a subset of the rows at a time.
-        read_cols = gshape[1]
+        read_cols = gshape[0]
         read_rows = max_read_size // read_cols
         # Make read_rows divisable by (blocksize[0] * process_grid[0]).
         read_rows = read_rows - read_rows % (blocksize[0] * process_grid[0])
