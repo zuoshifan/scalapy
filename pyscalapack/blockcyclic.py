@@ -177,8 +177,8 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid,
         raise ValueError(msg)
 
     # We split the read into batches of rows (columns for fortran ordering) to
-    # keep a single read from being to large. Reads bigger than 2GB crash due
-    # to a bug in MPIIO.
+    # keep a single read from being to large. Reads bigger than 2GB per
+    # process. Crash due to a bug in MPIIO.
     max_read_size = size * max_single_read_size // mpitype.Get_size()
     # Find out the global shape of the chunks matrix to read.
     if order is 'F':
