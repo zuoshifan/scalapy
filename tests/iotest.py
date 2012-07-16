@@ -167,7 +167,7 @@ class TestLargeFile(unittest.TestCase):
 class TestChunkedRectangular(unittest.TestCase):
 
     def setUp(self):
-        self.shape = (432, 653)
+        self.shape = (777, 653)
         self.mat = (np.arange(self.shape[0], dtype=np.float64)[:,None]
                     + 5 * np.arange(self.shape[1], dtype=np.float64)[None,:]
                     + 10)

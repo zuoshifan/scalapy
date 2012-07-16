@@ -183,14 +183,14 @@ def mpi_readmatrix(fname, comm, gshape, dtype, blocksize, process_grid,
     # Find out the global shape of the chunks matrix to read.
     if order is 'F':
         # In Fortran order we read a subset of the columns at a time.
-        read_rows = gshape[1]
+        read_rows = gshape[0]
         read_cols = max_read_size // read_rows
         # Make read_cols divisable by (blocksize[1] * process_grid[1]).
         read_cols = read_cols - read_cols % (blocksize[1] * process_grid[1])
         read_gshape = (read_rows, read_cols)
     elif order is 'C':
         # In C order, we read a subset of the rows at a time.
-        read_cols = gshape[0]
+        read_cols = gshape[1]
         read_rows = max_read_size // read_cols
         # Make read_rows divisable by (blocksize[0] * process_grid[0]).
         read_rows = read_rows - read_rows % (blocksize[0] * process_grid[0])
