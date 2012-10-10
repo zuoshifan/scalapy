@@ -121,9 +121,9 @@ int main(int argc, char **argv) {
   Cblacs_barrier(ictxt,"A");
   gettimeofday(&et, NULL);
   dtev = (double)((et.tv_sec-st.tv_sec) + (et.tv_usec-st.tv_usec)*1e-6);
-  gfpc_ev = 2.0*pow(nside, 3) / (dttn * 1e9 * ngrid * ngrid * nthread);
+  gfpc_ev = 2.0*pow(nside, 3) / (dtev * 1e9 * ngrid * ngrid * nthread);
 
-  if(rank == 0) printf("Done.\n=========\nTime taken: %g s\nGFlops per core: %g\n=========\n", dttn, gfpc_tn);
+  if(rank == 0) printf("Done.\n=========\nTime taken: %g s\nGFlops per core: %g\n=========\n", dtev, gfpc_ev);
 
   int liwork = -1;
   int tli = 0;
