@@ -166,6 +166,9 @@ int main(int argc, char **argv) {
   liwork = (int)tli;
   int * iwork = (int *)malloc(sizeof(int) * liwork);
 
+  if(rank == 0) printf("Computed workspace (%i %i %i).\n", lwork, lrwork, liwork);
+
+
 
   if(rank == 0) printf("Starting eigenvalue.\n");
 
@@ -184,6 +187,8 @@ int main(int argc, char **argv) {
            iwork, &liwork,
            ifail, iclustr, gap, &info);
 
+  if(rank == 0) printf("Done EV.\n");
+  fflush(stdout);
 
   Cblacs_barrier(ictxt,"A");
   gettimeofday(&et, NULL);

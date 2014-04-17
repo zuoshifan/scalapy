@@ -20,9 +20,9 @@ nomp = nthread
 numproc = pside**2
 pernode = 1
 
-timingest = 12*int(5.0 * ((25.0 * 8) / (pside**2 * nthread)) * (gsize**3 / 5e4**3)) + 1
+timingest = 12.0*int(5.0 * ((25.0 * 8) / (pside**2 * nthread)) * (gsize**3 / 5e4**3)) + 1
 
-print "Timing estimate: %i minutes, requesting %i minutes" % (timingest, 2*timingest+5)
+print "Timing estimate: %i minutes, requesting %i minutes" % (timingest, 1.3*timingest+5)
 
 script="""
 #!/bin/bash
