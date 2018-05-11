@@ -920,13 +920,11 @@ class DistributedMatrix(object):
         func, args = call_table[self.sc_dtype]
         func(*args)
 
+
     def __getitem__(self, items):
         # numpy-like global slicing operation, but returns a distributed array.
         #
         # Supports basic numpy slicing with start and stop, and positive step
-
-        def swap(a, b):
-            return b, a
 
         def regularize_idx(idx, N, axis):
             # Regularize an index to check it is valid
@@ -997,12 +995,8 @@ class DistributedMatrix(object):
 
         nrow, ncol = self.global_shape
 
-        # First replace any Ellipsis with a full slice(None, None, None) object, this
-        # is fine because the matrix is always 2D and it vastly simplifies the logic
         if items is Ellipsis:
-            items = slice(None, None, None)
-        if items is tuple:
-            items = tuple([slice(None, None, None) if items is Ellipsis else item for item in items])
+            return self.copy()
 
         # First case deal with just a single slice (either an int or slice object)
         if isinstance(items, int):
@@ -1028,6 +1022,9 @@ class DistributedMatrix(object):
             if not ((isinstance(items[0], (int, slice)) or items[0] is Ellipsis) and
                     (isinstance(items[1], (int, slice)) or items[1] is Ellipsis)):
                 raise ValueError('Invalid indices %s' % items)
+
+            # First replace any Ellipsis with a full slice(None, None, None) object
+            items = tuple([slice(None, None, None) if item is Ellipsis else item for item in items])
 
             # Process case of wanting a specific row
             if isinstance(items[0], int):
