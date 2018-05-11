@@ -41,7 +41,7 @@ def test_svd_D():
         # compare with numpy results
         nU, ns, nVT = np.linalg.svd(gA, full_matrices=False)
         assert allclose(s, ns)
-        # this should be careful as there is a freedom in determining the left/right singular vector: for A = U1 * S * V1^H = U2 * S * V2^H, one can proof that U2^H * U1 = (V1^H * V2)^H = D, where D is and diagonal matrix
+        # this should be careful as there is a freedom in determining the left/right singular vector: for A = U1 * S * V1^H = U2 * S * V2^H, one can proof that U2^H * U1 = (V1^H * V2)^H = D, where D is a unitary and diagonal matrix
         assert allclose(np.dot(nU.T.conj(), gU), np.dot(gVT, nVT.T.conj()).T.conj())
 
 
